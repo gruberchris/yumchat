@@ -1,6 +1,7 @@
 use crate::models::{ConversationMetadata, Message};
 
 use std::time::Instant;
+use tokio::task::JoinHandle;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +34,11 @@ pub struct App {
     
     // UI toggles
     pub show_thinking: bool,
+    pub is_thinking: bool, // Track if we are currently inside a thinking block
+    
+    // Task management
+    #[allow(dead_code)]
+    pub current_task: Option<JoinHandle<()>>,
 }
 
 impl App {
@@ -54,6 +60,8 @@ impl App {
             generation_start_time: None,
             generation_token_count: 0,
             show_thinking: false,
+            is_thinking: false,
+            current_task: None,
         }
     }
 
@@ -71,6 +79,22 @@ impl App {
     
     pub const fn toggle_thinking(&mut self) {
         self.show_thinking = !self.show_thinking;
+    }
+    
+    pub fn abort_generation(&mut self) {
+        // Abort the running task if exists
+        if let Some(handle) = self.current_task.take() {
+            handle.abort();
+        }
+        
+        self.is_loading = false;
+        self.is_thinking = false;
+        self.generation_start_time = None;
+        if let Some(last_msg) = self.messages.last_mut() {
+            if last_msg.role == crate::models::MessageRole::Assistant {
+                last_msg.content.push_str("\n\n[Response stream aborted by user]");
+            }
+        }
     }
 
     pub const fn scroll_up(&mut self, amount: usize) {

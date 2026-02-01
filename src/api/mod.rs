@@ -36,6 +36,7 @@ pub struct GenerateResponse {
 
 impl GenerateResponse {
     /// Get the text content (prioritize response over thinking)
+    #[allow(dead_code)]
     pub fn get_text(&self) -> &str {
         if self.response.is_empty() {
             &self.thinking

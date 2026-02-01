@@ -17,8 +17,6 @@ A terminal UI chat application for AI models powered by Ollama.
 ### Current Features
 - **Real AI Chat** - Streaming responses from Ollama models (qwen3:4b)
 - **Beautiful TUI** - Status bar, chat history, and input field
-- **Enhanced Focus Indicators** - Clear visual feedback (bright borders for focused windows, dim for unfocused)
-- **Focus-Aware Scrolling** - Scroll only when History window has focus, prevent accidental scrolling while typing
 - **Arrow Key Navigation** - Fine-grained line-by-line scrolling with Up/Down arrows
 - **Token Tracking** - Real-time token counting with color-coded context window indicator
 - **Loading Indicator** - Visual feedback while waiting for AI responses
@@ -36,14 +34,11 @@ cargo run
 ```
 
 **Controls:**
-- **Type & Enter** - Send message to AI (when input focused)
-- **Tab** - Switch focus between input and history windows
-  - **Cyan border** = Input focused (can type)
-  - **Yellow border** = History focused (can scroll)
-  - **Gray border** = Window not focused
-- **Up/Down Arrow** - Scroll one line (History focused only)
-- **PageUp/PageDown** - Scroll one page (History focused only)
-- **Home/End** - Jump to start/end (History focused only)
+- **Type & Enter** - Send message to AI
+- **Tab** - Toggle hidden thinking blocks
+- **Up/Down Arrow** - Scroll chat history
+- **PageUp/PageDown** - Scroll one page
+- **Home/End** - Jump to start/end
 - **Ctrl+H** - Show/hide help window
 - **Ctrl+Q** or **Ctrl+C** - Quit
 - **Esc** - Close help window

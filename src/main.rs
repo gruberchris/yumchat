@@ -23,6 +23,8 @@ use app::App;
 use api::OllamaClient;
 use events::AppEvent;
 
+use tokio::task::JoinHandle;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Setup terminal
@@ -57,6 +59,18 @@ async fn main() -> Result<()> {
 fn handle_app_event(app: &mut App, event: AppEvent) {
     match event {
         AppEvent::AiResponseChunk(chunk) => {
+            // Ignore chunks if we are no longer loading (e.g. cancelled)
+            if !app.is_loading {
+                return;
+            }
+
+            // Check for thinking tags to toggle status
+            if chunk.contains("<thinking>") {
+                app.is_thinking = true;
+            } else if chunk.contains("</thinking>") {
+                app.is_thinking = false;
+            }
+            
             // Append chunk to the last message (which should be the AI response)
             if let Some(last_msg) = app.messages.last_mut() {
                 if last_msg.role == models::MessageRole::Assistant {
@@ -102,12 +116,14 @@ fn handle_app_event(app: &mut App, event: AppEvent) {
         }
         AppEvent::AiResponseDone => {
             app.is_loading = false;
+            app.is_thinking = false;
             app.generation_start_time = None;
             // Ensure we're scrolled to bottom when response completes
             app.scroll_to_bottom();
         }
         AppEvent::AiError(error) => {
             app.is_loading = false;
+            app.is_thinking = false;
             // Add error message to chat
             app.messages.push(models::Message::new(
                 models::MessageRole::Assistant,
@@ -143,7 +159,7 @@ fn handle_keyboard_input(
     modifiers: event::KeyModifiers,
     client: &OllamaClient,
     event_tx: &mpsc::UnboundedSender<AppEvent>,
-) {
+) -> Option<JoinHandle<()>> {
     match key {
         KeyCode::Char('c') if modifiers.contains(event::KeyModifiers::CONTROL) => {
             if app.exit_pending {
@@ -159,36 +175,26 @@ fn handle_keyboard_input(
                 app.show_info = false;
             } else if app.exit_pending {
                 app.exit_pending = false;
+            } else if app.is_loading {
+                app.abort_generation();
+                return None; // Caller will handle task abortion
             }
         }
         _ if app.exit_pending => {
-            // Any other key cancels pending exit? 
-            // User only asked for Esc to go back. 
-            // But usually typing anything else should probably cancel it or be ignored.
-            // Let's force explicit ESC or Ctrl+C.
-            // If they type a character, should it go to input?
-            // "pressing CTRL+C should then change the keymap roll to prompt the user to press CTRL+C again to exit the app or to press ESC to go back."
-            // Implies modal state. Let's consume keys if exit pending?
-            // Or just handle Ctrl+C / Esc and let others fall through but maybe cancel exit?
-            // Safest: Any key that isn't Ctrl+C cancels exit pending.
+            // Any other key cancels pending exit
             app.exit_pending = false;
-            // Re-process this key? 
-            // If we just cancel, the key is consumed. If we want it to type, we should fall through.
-            // Let's just cancel and NOT return, so it falls through to normal handling.
         }
         _ => {}
     }
 
     // If we didn't handle it above (or cancelled exit pending), continue
     if app.exit_pending {
-        return; // Don't process other keys while waiting for confirmation
+        return None; 
     }
 
     match key {
         KeyCode::Char('q') if modifiers.contains(event::KeyModifiers::CONTROL) => {
-             // Keep Ctrl+Q as instant quit or make it follow same rule? 
-             // User didn't specify Ctrl+Q behavior, but for consistency let's leave it as instant quit for power users,
-             // or remove it if they only want Ctrl+C. Let's leave it for now.
+             // Keep Ctrl+Q as instant quit 
             app.quit();
         }
         KeyCode::Char('h') if modifiers.contains(event::KeyModifiers::CONTROL) => {
@@ -202,7 +208,7 @@ fn handle_keyboard_input(
             app.toggle_thinking();
         }
         
-        // Navigation keys ALWAYS scroll history (unless modifiers used maybe?)
+        // Navigation keys ALWAYS scroll history
         KeyCode::Up => app.scroll_up(1),
         KeyCode::Down => app.scroll_down(1),
         KeyCode::PageUp => app.scroll_up(10),
@@ -216,7 +222,7 @@ fn handle_keyboard_input(
         },
         KeyCode::Enter if !app.is_loading => {
             if !app.input_buffer.is_empty() {
-                send_message(app, client, event_tx);
+                return Some(send_message(app, client, event_tx));
             }
         },
         
@@ -227,13 +233,14 @@ fn handle_keyboard_input(
         
         _ => {}
     }
+    None
 }
 
 fn send_message(
     app: &mut App,
     client: &OllamaClient,
     event_tx: &mpsc::UnboundedSender<AppEvent>,
-) {
+) -> JoinHandle<()> {
     let user_msg = app.input_buffer.clone();
 
     // Add user message
@@ -274,14 +281,34 @@ fn send_message(
         match client_clone.generate_stream(request).await {
             Ok(mut stream) => {
                 let mut received_done = false;
+                let mut in_thinking_block = false;
+                
                 while let Some(result) = stream.next().await {
                     match result {
                         Ok(response) => {
-                            let text = response.get_text();
-                            if !text.is_empty() {
-                                let _ = tx.send(AppEvent::AiResponseChunk(text.to_string()));
+                            // Handle thinking content
+                            if !response.thinking.is_empty() {
+                                if !in_thinking_block {
+                                    let _ = tx.send(AppEvent::AiResponseChunk("<thinking>\n".to_string()));
+                                    in_thinking_block = true;
+                                }
+                                let _ = tx.send(AppEvent::AiResponseChunk(response.thinking));
+                            } 
+                            
+                            // Handle regular response content
+                            if !response.response.is_empty() {
+                                if in_thinking_block {
+                                    let _ = tx.send(AppEvent::AiResponseChunk("\n</thinking>\n".to_string()));
+                                    in_thinking_block = false;
+                                }
+                                let _ = tx.send(AppEvent::AiResponseChunk(response.response));
                             }
+                            
                             if response.done {
+                                if in_thinking_block {
+                                    let _ = tx.send(AppEvent::AiResponseChunk("\n</thinking>\n".to_string()));
+                                    in_thinking_block = false; // Not strictly needed but good for correctness
+                                }
                                 let _ = tx.send(AppEvent::AiResponseDone);
                                 received_done = true;
                                 break;
@@ -297,6 +324,9 @@ fn send_message(
                 
                 // If stream ended without explicit done signal or error, ensure we unblock UI
                 if !received_done {
+                    if in_thinking_block {
+                        let _ = tx.send(AppEvent::AiResponseChunk("\n</thinking>\n".to_string()));
+                    }
                     let _ = tx.send(AppEvent::AiResponseDone);
                 }
             }
@@ -304,7 +334,7 @@ fn send_message(
                 let _ = tx.send(AppEvent::AiError(e.to_string()));
             }
         }
-    });
+    })
 }
 
 fn run_app<B: Backend>(

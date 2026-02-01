@@ -25,6 +25,7 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(Span::styled("Chat:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  Enter         - Send message"),
+        Line::from("  Tab           - Toggle thinking"),
         Line::from("  Typing        - Auto-targets input"),
         Line::from(""),
         Line::from(Span::styled("Navigation:", Style::default().add_modifier(Modifier::BOLD))),
@@ -145,7 +146,7 @@ pub fn render_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
         )
     } else {
         (
-            "Ctrl+C: Quit | Ctrl+I: Info | Ctrl+H: Help | Tab: Toggle Focus",
+            "Ctrl+C: Quit | Ctrl+I: Info | Ctrl+H: Help | Tab: Toggle Thoughts",
             Style::default().fg(Color::DarkGray),
         )
     };
@@ -168,7 +169,15 @@ pub fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Color::Green
     };
 
-    let loading_indicator = if app.is_loading { " [Thinking...]" } else { "" };
+    let loading_indicator = if app.is_loading {
+        if app.is_thinking {
+            " [Thinking...]"
+        } else {
+            " [Responding...]"
+        }
+    } else {
+        ""
+    };
     
     let status_text = format!(
         "{}{} ({:.1}%)",
@@ -238,17 +247,12 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                 let mut in_thinking = false;
                 let mut thinking_header_shown = false;
                 
-                // Helper to check for tag presence more robustly
-                // The issue is likely that "content_line" might contain the tag but also other text
-                // OR the tag might be split across chunks if not careful, but here we iterate lines.
-                // The main issue described is that the user can't tell where thinking ends.
-                // This means the parsing logic isn't catching the tags correctly or the model output format is slightly different.
-                
                 for content_line in message.content.lines() {
                     let trimmed = content_line.trim();
+                    let has_start = trimmed.contains("<thinking>");
+                    let has_end = trimmed.contains("</thinking>");
                     
-                    // Robust check for start tag
-                    if trimmed.contains("<thinking>") {
+                    if has_start {
                         in_thinking = true;
                         thinking_header_shown = false;
                         if app.show_thinking {
@@ -257,15 +261,97 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                                 Style::default().fg(Color::DarkGray)
                             )));
                         }
-                        // If there is content after the tag on the same line, we should handle it?
-                        // Usually models output <thinking>\n...
-                        if trimmed == "<thinking>" {
+                    }
+                    
+                    if in_thinking {
+                        // Strip tags to get actual content if any
+                        let clean_content = content_line.replace("<thinking>", "").replace("</thinking>", "");
+                        let clean_trimmed = clean_content.trim();
+                        
+                        if !clean_trimmed.is_empty() {
+                            if app.show_thinking {
+                                lines.push(Line::from(Span::styled(
+                                    format!("        {}", clean_trimmed), 
+                                    Style::default().fg(Color::DarkGray),
+                                )));
+                            } else if !thinking_header_shown {
+                                if app.is_loading && app.is_thinking {
+                                    // Animation based on time
+                                    let tick = if let Some(start) = app.generation_start_time {
+                                        (start.elapsed().as_millis() / 100) as usize
+                                    } else {
+                                        0
+                                    };
+                                    
+                                    let frames = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+                                    let frame = frames[tick % frames.len()];
+                                    let color = match (tick / 8) % 3 {
+                                        0 => Color::Magenta,
+                                        1 => Color::Cyan,
+                                        _ => Color::Blue,
+                                    };
+                                    
+                                    lines.push(Line::from(vec![
+                                        Span::styled("    | AI assistant thoughts (Hidden)   ", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+                                        Span::styled(format!("{}  ", frame), Style::default().fg(color)),
+                                        Span::styled("Thinking", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+                                        Span::styled(format!("  {}", frame), Style::default().fg(color)),
+                                    ]));
+                                } else {
+                                    lines.push(Line::from(Span::styled(
+                                        "    | AI assistant thoughts (Hidden) - Press Tab to show", 
+                                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                                    )));
+                                }
+                                thinking_header_shown = true;
+                            }
+                        }
+                    } else {
+                        // Regular content processing
+                        if trimmed == "[Response stream aborted by user]" {
+                            lines.push(Line::from(Span::styled(
+                                "[Response stream aborted by user]",
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
+                            )));
                             continue;
+                        }
+                        
+                        if super::markdown::is_code_fence(content_line) {
+                            if in_code_block {
+                                // Closing fence
+                                lines.push(Line::from(Span::styled(
+                                    "└──────────────────────────────────────────────",
+                                    Style::default().fg(Color::DarkGray),
+                                )));
+                                in_code_block = false;
+                            } else {
+                                // Opening fence
+                                in_code_block = true;
+                                let code_lang = super::markdown::extract_code_language(content_line);
+                                let lang_display = code_lang.as_deref().unwrap_or("code");
+                                lines.push(Line::from(Span::styled(
+                                    format!("┌─ {lang_display} ───────────────────────────────────────────"),
+                                    Style::default().fg(Color::DarkGray),
+                                )));
+                            }
+                        } else if in_code_block {
+                            // Inside code block - render with simple prefix
+                            lines.push(Line::from(Span::styled(
+                                format!("  {content_line}"),
+                                Style::default().fg(Color::Green),
+                            )));
+                        } else {
+                            // Regular markdown line
+                            if content_line.is_empty() {
+                                lines.push(Line::from(""));
+                            } else {
+                                let rendered_lines = super::markdown::render_markdown_to_lines(content_line);
+                                lines.extend(rendered_lines);
+                            }
                         }
                     }
                     
-                    // Robust check for end tag
-                    if trimmed.contains("</thinking>") {
+                    if has_end {
                         in_thinking = false;
                         if app.show_thinking {
                              lines.push(Line::from(Span::styled(
@@ -273,67 +359,27 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                                 Style::default().fg(Color::DarkGray)
                             )));
                         }
-                        // Continue to next line, assuming </thinking> is on its own line or end of thinking block
-                        if trimmed == "</thinking>" {
-                            continue;
-                        }
-                        // If content exists after </thinking>, we should fall through to render it.
-                        // But for now, let's assume standard formatting. 
-                        // If the line is JUST </thinking>, we continue. 
-                        // If it has more, we might miss it. 
-                        // Let's stick to the strict check but fix the visual separation.
-                        continue;
+                        // Add blank line after thinking block
+                        lines.push(Line::from(""));
                     }
-                    
-                    if in_thinking {
-                        if app.show_thinking {
-                            // Expanded: Show content indented clearly with 2 tabs (8 spaces)
-                            // and DarkGray color
-                            lines.push(Line::from(Span::styled(
-                                format!("        {content_line}"), // 8 spaces indent
-                                Style::default().fg(Color::DarkGray),
-                            )));
-                        } else if !thinking_header_shown {
-                            // Collapsed: Show placeholder once
-                            lines.push(Line::from(Span::styled(
-                                "    | AI assistant thoughts (Hidden)", // Indented
-                                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                            )));
-                            thinking_header_shown = true;
-                        }
-                        continue;
-                    }
-                    
-                    // Check for code fence
-                    if super::markdown::is_code_fence(content_line) {
-                        if in_code_block {
-                            // Closing fence
-                            lines.push(Line::from(Span::styled(
-                                "└──────────────────────────────────────────────",
-                                Style::default().fg(Color::DarkGray),
-                            )));
-                            in_code_block = false;
-                        } else {
-                            // Opening fence
-                            in_code_block = true;
-                            let code_lang = super::markdown::extract_code_language(content_line);
-                            let lang_display = code_lang.as_deref().unwrap_or("code");
-                            lines.push(Line::from(Span::styled(
-                                format!("┌─ {lang_display} ───────────────────────────────────────────"),
-                                Style::default().fg(Color::DarkGray),
-                            )));
-                        }
-                    } else if in_code_block {
-                        // Inside code block - render with simple prefix
-                        lines.push(Line::from(Span::styled(
-                            format!("  {content_line}"),
-                            Style::default().fg(Color::Green),
-                        )));
+                }
+                
+                // Add thinking animation if currently thinking at the end of the message (visible mode)
+                if app.is_loading && app.is_thinking && in_thinking && app.show_thinking {
+                    // Animation based on time
+                    let tick = if let Some(start) = app.generation_start_time {
+                        (start.elapsed().as_millis() / 100) as usize
                     } else {
-                        // Regular markdown line
-                        let rendered_lines = super::markdown::render_markdown_to_lines(content_line);
-                        lines.extend(rendered_lines);
-                    }
+                        0
+                    };
+                    
+                    let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+                    let frame = frames[tick % frames.len()];
+                    
+                    lines.push(Line::from(Span::styled(
+                        format!("        {} Thinking...", frame), 
+                        Style::default().fg(Color::DarkGray),
+                    )));
                 }
             }
         }
