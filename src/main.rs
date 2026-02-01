@@ -16,7 +16,7 @@ use crossterm::{
 use futures::StreamExt;
 use ratatui::{backend::Backend, prelude::*};
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use app::App;
@@ -60,13 +60,40 @@ fn handle_app_event(app: &mut App, event: AppEvent) {
             // Append chunk to the last message (which should be the AI response)
             if let Some(last_msg) = app.messages.last_mut() {
                 if last_msg.role == models::MessageRole::Assistant {
+                    // Update TPS
+                    if app.generation_start_time.is_none() {
+                        app.generation_start_time = Some(Instant::now());
+                        app.generation_token_count = 0;
+                    }
+                    
+                    // Rough token estimation (chars / 4 is a common approximation)
+                    // Or count actual words/subwords if possible. 
+                    // Since we get raw text chunks, let's just count chunk length / 4 for now as a rough metric
+                    // or better, just count count the chunk count if we assume 1 chunk ~ 1 token (often true for streaming)
+                    // But actually chunks can be multiple tokens.
+                    // Let's use the actual token counter update logic to track delta
+                    let old_tokens = last_msg.tokens;
+                    
                     last_msg.content.push_str(&chunk);
+                    
                     // Update token count
                     let role_str = match last_msg.role {
                         models::MessageRole::User => "user",
                         models::MessageRole::Assistant => "assistant",
                     };
                     last_msg.tokens = tokens::count_message_tokens(role_str, &last_msg.content);
+                    
+                    let new_tokens = last_msg.tokens;
+                    let delta_tokens = new_tokens.saturating_sub(old_tokens);
+                    
+                    app.generation_token_count += delta_tokens;
+                    
+                    if let Some(start) = app.generation_start_time {
+                        let elapsed = start.elapsed().as_secs_f64();
+                        if elapsed > 0.0 {
+                            app.tokens_per_second = app.generation_token_count as f64 / elapsed;
+                        }
+                    }
                     
                     // Auto-scroll to bottom to show new content
                     app.scroll_to_bottom();
@@ -75,6 +102,7 @@ fn handle_app_event(app: &mut App, event: AppEvent) {
         }
         AppEvent::AiResponseDone => {
             app.is_loading = false;
+            app.generation_start_time = None;
             // Ensure we're scrolled to bottom when response completes
             app.scroll_to_bottom();
         }
@@ -117,46 +145,86 @@ fn handle_keyboard_input(
     event_tx: &mpsc::UnboundedSender<AppEvent>,
 ) {
     match key {
-        KeyCode::Char('c' | 'q') if modifiers.contains(event::KeyModifiers::CONTROL) => {
+        KeyCode::Char('c') if modifiers.contains(event::KeyModifiers::CONTROL) => {
+            if app.exit_pending {
+                app.quit();
+            } else {
+                app.exit_pending = true;
+            }
+        }
+        KeyCode::Esc => {
+            if app.show_help {
+                app.show_help = false;
+            } else if app.show_info {
+                app.show_info = false;
+            } else if app.exit_pending {
+                app.exit_pending = false;
+            }
+        }
+        _ if app.exit_pending => {
+            // Any other key cancels pending exit? 
+            // User only asked for Esc to go back. 
+            // But usually typing anything else should probably cancel it or be ignored.
+            // Let's force explicit ESC or Ctrl+C.
+            // If they type a character, should it go to input?
+            // "pressing CTRL+C should then change the keymap roll to prompt the user to press CTRL+C again to exit the app or to press ESC to go back."
+            // Implies modal state. Let's consume keys if exit pending?
+            // Or just handle Ctrl+C / Esc and let others fall through but maybe cancel exit?
+            // Safest: Any key that isn't Ctrl+C cancels exit pending.
+            app.exit_pending = false;
+            // Re-process this key? 
+            // If we just cancel, the key is consumed. If we want it to type, we should fall through.
+            // Let's just cancel and NOT return, so it falls through to normal handling.
+        }
+        _ => {}
+    }
+
+    // If we didn't handle it above (or cancelled exit pending), continue
+    if app.exit_pending {
+        return; // Don't process other keys while waiting for confirmation
+    }
+
+    match key {
+        KeyCode::Char('q') if modifiers.contains(event::KeyModifiers::CONTROL) => {
+             // Keep Ctrl+Q as instant quit or make it follow same rule? 
+             // User didn't specify Ctrl+Q behavior, but for consistency let's leave it as instant quit for power users,
+             // or remove it if they only want Ctrl+C. Let's leave it for now.
             app.quit();
         }
         KeyCode::Char('h') if modifiers.contains(event::KeyModifiers::CONTROL) => {
             app.toggle_help();
         }
+        KeyCode::Char('i') if modifiers.contains(event::KeyModifiers::CONTROL) => {
+            app.toggle_info();
+        }
         KeyCode::Tab => {
-            app.toggle_focus();
+            // Toggle visibility of <thinking> blocks
+            app.toggle_thinking();
         }
-        // Scrolling only works when History window has focus
-        KeyCode::Up if matches!(app.focus, app::Focus::History) => {
-            app.scroll_up(1);
-        }
-        KeyCode::Down if matches!(app.focus, app::Focus::History) => {
-            app.scroll_down(1);
-        }
-        KeyCode::PageUp if matches!(app.focus, app::Focus::History) => {
-            app.scroll_up(10);  // Use reasonable default page size
-        }
-        KeyCode::PageDown if matches!(app.focus, app::Focus::History) => {
-            app.scroll_down(10);  // Use reasonable default page size
-        }
-        KeyCode::Home if matches!(app.focus, app::Focus::History) => {
-            app.scroll_to_top();
-        }
-        KeyCode::End if matches!(app.focus, app::Focus::History) => {
-            app.scroll_to_bottom();
-        }
-        // Typing only works when Input window has focus
-        KeyCode::Char(c) if matches!(app.focus, app::Focus::Input) => {
-            app.input_buffer.push(c);
-        }
-        KeyCode::Backspace if matches!(app.focus, app::Focus::Input) => {
+        
+        // Navigation keys ALWAYS scroll history (unless modifiers used maybe?)
+        KeyCode::Up => app.scroll_up(1),
+        KeyCode::Down => app.scroll_down(1),
+        KeyCode::PageUp => app.scroll_up(10),
+        KeyCode::PageDown => app.scroll_down(10),
+        KeyCode::Home => app.scroll_to_top(),
+        KeyCode::End => app.scroll_to_bottom(),
+        
+        // Editing keys ALWAYS affect input
+        KeyCode::Backspace => {
             app.input_buffer.pop();
-        }
-        KeyCode::Enter if matches!(app.focus, app::Focus::Input) && !app.is_loading => {
+        },
+        KeyCode::Enter if !app.is_loading => {
             if !app.input_buffer.is_empty() {
                 send_message(app, client, event_tx);
             }
+        },
+        
+        // Typing characters ALWAYS go to input
+        KeyCode::Char(c) => {
+            app.input_buffer.push(c);
         }
+        
         _ => {}
     }
 }
@@ -184,6 +252,8 @@ fn send_message(
 
     app.input_buffer.clear();
     app.is_loading = true;
+    app.generation_start_time = None;
+    app.tokens_per_second = 0.0;
     
     // Auto-scroll to show user message and prepare for AI response
     app.scroll_to_bottom();
@@ -203,6 +273,7 @@ fn send_message(
 
         match client_clone.generate_stream(request).await {
             Ok(mut stream) => {
+                let mut received_done = false;
                 while let Some(result) = stream.next().await {
                     match result {
                         Ok(response) => {
@@ -212,14 +283,21 @@ fn send_message(
                             }
                             if response.done {
                                 let _ = tx.send(AppEvent::AiResponseDone);
+                                received_done = true;
                                 break;
                             }
                         }
                         Err(e) => {
                             let _ = tx.send(AppEvent::AiError(e.to_string()));
+                            received_done = true;
                             break;
                         }
                     }
+                }
+                
+                // If stream ended without explicit done signal or error, ensure we unblock UI
+                if !received_done {
+                    let _ = tx.send(AppEvent::AiResponseDone);
                 }
             }
             Err(e) => {
@@ -251,6 +329,44 @@ fn run_app<B: Backend>(
                     // Handle help window first
                     if handle_help_keys(app, key.code, key.modifiers) {
                         continue;
+                    }
+                    
+                    // Handle info window
+                    if app.show_info {
+                        if key.code == KeyCode::Esc || 
+                           (key.code == KeyCode::Char('i') && key.modifiers.contains(event::KeyModifiers::CONTROL)) {
+                            app.show_info = false;
+                            continue;
+                        }
+                    }
+
+                    match key.code {
+                        KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                            if app.exit_pending {
+                                app.quit();
+                            } else {
+                                app.exit_pending = true;
+                            }
+                            continue;
+                        }
+                        KeyCode::Esc => {
+                            if app.show_help {
+                                app.show_help = false;
+                                continue;
+                            } else if app.show_info {
+                                app.show_info = false;
+                                continue;
+                            } else if app.exit_pending {
+                                app.exit_pending = false;
+                                continue;
+                            }
+                        }
+                        _ if app.exit_pending => {
+                            // Any other key cancels pending exit
+                            app.exit_pending = false;
+                            // Fall through to process the key normally
+                        }
+                        _ => {}
                     }
 
                     // Normal key handling

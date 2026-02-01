@@ -97,6 +97,9 @@ pub fn save_models(models: &[ModelInfo]) -> Result<()> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     fn setup_test_env() -> TempDir {
         TempDir::new().unwrap()
@@ -104,15 +107,23 @@ mod tests {
 
     #[test]
     fn test_load_config_creates_default() {
+        let _lock = ENV_MUTEX.lock().unwrap();
         let temp_dir = setup_test_env();
         
         // Save and restore HOME for test isolation
         let original_home = std::env::var("HOME").ok();
         std::env::set_var("HOME", temp_dir.path());
-
+        
         let config = load_config();
         
         // Restore HOME immediately after config is loaded
+        if let Some(home) = &original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        
+        // Check result and provide helpful error message
         if let Some(home) = &original_home {
             std::env::set_var("HOME", home);
         } else {
@@ -153,6 +164,7 @@ mod tests {
 
     #[test]
     fn test_load_models_creates_default() {
+        let _lock = ENV_MUTEX.lock().unwrap();
         let temp_dir = setup_test_env();
         
         // Save and restore HOME for test isolation

@@ -19,26 +19,18 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(Span::styled("General:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  Ctrl+H        - Show/hide this help"),
+        Line::from("  Ctrl+I        - Show/hide info stats"),
         Line::from("  Ctrl+Q        - Quit application"),
         Line::from("  Ctrl+C        - Quit application"),
         Line::from(""),
         Line::from(Span::styled("Chat:", Style::default().add_modifier(Modifier::BOLD))),
-        Line::from("  Enter         - Send message (when input focused)"),
-        Line::from("  Backspace     - Delete character"),
-        Line::from("  Tab           - Switch focus between input/history"),
+        Line::from("  Enter         - Send message"),
+        Line::from("  Typing        - Auto-targets input"),
         Line::from(""),
-        Line::from(Span::styled("Focus Indicators:", Style::default().add_modifier(Modifier::BOLD))),
-        Line::from("  Cyan border   - Input has focus (can type)"),
-        Line::from("  Yellow border - History has focus (can scroll)"),
-        Line::from("  Gray border   - Window not focused"),
-        Line::from(""),
-        Line::from(Span::styled("Navigation (History focus only):", Style::default().add_modifier(Modifier::BOLD))),
-        Line::from("  Up Arrow      - Scroll up one line"),
-        Line::from("  Down Arrow    - Scroll down one line"),
-        Line::from("  Page Up       - Scroll up one page"),
-        Line::from("  Page Down     - Scroll down one page"),
-        Line::from("  Home          - Jump to start of conversation"),
-        Line::from("  End           - Jump to end of conversation"),
+        Line::from(Span::styled("Navigation:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from("  Up/Down       - Scroll history"),
+        Line::from("  PgUp/PgDn     - Scroll history"),
+        Line::from("  Home/End      - Jump to start/end"),
         Line::from(""),
         Line::from(Span::styled("Coming Soon:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  Ctrl+N        - New conversation"),
@@ -62,7 +54,7 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
 
     // Calculate centered position
     let popup_width = 60;
-    let popup_height = 35;  // Increased from 28 to accommodate new help lines
+    let popup_height = 25;
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -77,6 +69,94 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
     frame.render_widget(help_paragraph, popup_area);
 }
 
+pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
+    let tokens_used = app.total_tokens_used();
+    let context_window = app.context_window_size;
+    let usage_percentage = app.context_usage_percentage();
+
+    let info_text = vec![
+        Line::from(Span::styled(
+            "Session Information",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("Model: "),
+            Span::styled(&app.current_model, Style::default().fg(Color::Yellow)),
+        ]),
+        Line::from(vec![
+            Span::raw("Tokens Used: "),
+            Span::styled(format!("{}", tokens_used), Style::default().fg(Color::Green)),
+        ]),
+        Line::from(vec![
+            Span::raw("Speed: "),
+            Span::styled(format!("{:.1} t/s", app.tokens_per_second), Style::default().fg(Color::Magenta)),
+        ]),
+        Line::from(vec![
+            Span::raw("Context Window: "),
+            Span::styled(format!("{}", context_window), Style::default().fg(Color::Blue)),
+        ]),
+        Line::from(vec![
+            Span::raw("Usage: "),
+            Span::styled(format!("{:.1}%", usage_percentage), Style::default().fg(
+                if usage_percentage > 80.0 { Color::Red }
+                else if usage_percentage > 50.0 { Color::Yellow }
+                else { Color::Green }
+            )),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Press Ctrl+I to close",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let info_paragraph = Paragraph::new(info_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Info ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .wrap(Wrap { trim: false });
+
+    // Center popup
+    let popup_width = 40;
+    let popup_height = 12;
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect {
+        x: area.x + x,
+        y: area.y + y,
+        width: popup_width.min(area.width),
+        height: popup_height.min(area.height),
+    };
+
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(info_paragraph, popup_area);
+}
+
+pub fn render_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
+    let (text, style) = if app.exit_pending {
+        (
+            "Press Ctrl+C again to exit, Esc to cancel",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            "Ctrl+C: Quit | Ctrl+I: Info | Ctrl+H: Help | Tab: Toggle Focus",
+            Style::default().fg(Color::DarkGray),
+        )
+    };
+
+    let bar = Paragraph::new(text)
+        .alignment(ratatui::layout::Alignment::Center)
+        .style(style);
+
+    frame.render_widget(bar, area);
+}
+
 pub fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let usage_percentage = app.context_usage_percentage();
     
@@ -88,19 +168,16 @@ pub fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         Color::Green
     };
 
-    let tokens_used = app.total_tokens_used();
-    let context_window = app.context_window_size;
-    
     let loading_indicator = if app.is_loading { " [Thinking...]" } else { "" };
     
     let status_text = format!(
-        " Model: {} | Tokens: {}/{} ({:.1}%){}",
-        app.current_model, tokens_used, context_window, usage_percentage, loading_indicator
+        "{}{} ({:.1}%)",
+        app.current_model, loading_indicator, usage_percentage
     );
 
     let status = Paragraph::new(status_text)
-        .style(Style::default().fg(color).add_modifier(Modifier::BOLD))
-        .block(Block::default().borders(Borders::ALL).title("YumChat"));
+        .alignment(ratatui::layout::Alignment::Right)
+        .style(Style::default().fg(color).add_modifier(Modifier::BOLD));
 
     frame.render_widget(status, area);
 }
@@ -109,13 +186,38 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut lines = Vec::new();
 
     if app.messages.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "No messages yet. Start typing below to begin a conversation.",
-            Style::default().fg(Color::DarkGray),
-        )));
-    } else {
-        for message in &app.messages {
-            let (role, color) = match message.role {
+        // Render welcome banner at the bottom of the history area
+        let welcome_text = vec![
+            Line::from(Span::styled(
+                "Welcome to YumChat",
+                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                "Your friendly terminal AI assistant",
+                Style::default().fg(Color::Cyan),
+            )),
+        ];
+
+        let welcome_paragraph = Paragraph::new(welcome_text)
+            .alignment(ratatui::layout::Alignment::Center);
+
+        // Position it at the bottom of the history area
+        let welcome_height = 2;
+        let y_pos = area.y + area.height.saturating_sub(welcome_height);
+        
+        let welcome_area = Rect {
+            x: area.x,
+            y: y_pos,
+            width: area.width,
+            height: welcome_height.min(area.height),
+        };
+
+        frame.render_widget(welcome_paragraph, welcome_area);
+        return;
+    } 
+    
+    for message in &app.messages {
+        let (role, color) = match message.role {
                 crate::models::MessageRole::User => ("User", Color::Cyan),
                 crate::models::MessageRole::Assistant => ("Assistant", Color::Green),
             };
@@ -132,32 +234,73 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                 // Show a placeholder for empty AI responses (while streaming)
                 lines.push(Line::from(Span::styled("...", Style::default().fg(Color::DarkGray))));
             } else {
-                // Check if we're in a code block or thinking block
                 let mut in_code_block = false;
                 let mut in_thinking = false;
+                let mut thinking_header_shown = false;
+                
+                // Helper to check for tag presence more robustly
+                // The issue is likely that "content_line" might contain the tag but also other text
+                // OR the tag might be split across chunks if not careful, but here we iterate lines.
+                // The main issue described is that the user can't tell where thinking ends.
+                // This means the parsing logic isn't catching the tags correctly or the model output format is slightly different.
                 
                 for content_line in message.content.lines() {
-                    // Check for thinking tags first
-                    if content_line.trim() == "<thinking>" {
+                    let trimmed = content_line.trim();
+                    
+                    // Robust check for start tag
+                    if trimmed.contains("<thinking>") {
                         in_thinking = true;
-                        lines.push(Line::from(Span::styled(
-                            "  [Thinking...]",
-                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                        )));
-                        continue;
+                        thinking_header_shown = false;
+                        if app.show_thinking {
+                             lines.push(Line::from(Span::styled(
+                                "  <thinking>", 
+                                Style::default().fg(Color::DarkGray)
+                            )));
+                        }
+                        // If there is content after the tag on the same line, we should handle it?
+                        // Usually models output <thinking>\n...
+                        if trimmed == "<thinking>" {
+                            continue;
+                        }
                     }
                     
-                    if content_line.trim() == "</thinking>" {
+                    // Robust check for end tag
+                    if trimmed.contains("</thinking>") {
                         in_thinking = false;
+                        if app.show_thinking {
+                             lines.push(Line::from(Span::styled(
+                                "  </thinking>", 
+                                Style::default().fg(Color::DarkGray)
+                            )));
+                        }
+                        // Continue to next line, assuming </thinking> is on its own line or end of thinking block
+                        if trimmed == "</thinking>" {
+                            continue;
+                        }
+                        // If content exists after </thinking>, we should fall through to render it.
+                        // But for now, let's assume standard formatting. 
+                        // If the line is JUST </thinking>, we continue. 
+                        // If it has more, we might miss it. 
+                        // Let's stick to the strict check but fix the visual separation.
                         continue;
                     }
                     
-                    // If in thinking block, render with subdued style
                     if in_thinking {
-                        lines.push(Line::from(Span::styled(
-                            format!("    {content_line}"),
-                            Style::default().fg(Color::DarkGray),
-                        )));
+                        if app.show_thinking {
+                            // Expanded: Show content indented clearly with 2 tabs (8 spaces)
+                            // and DarkGray color
+                            lines.push(Line::from(Span::styled(
+                                format!("        {content_line}"), // 8 spaces indent
+                                Style::default().fg(Color::DarkGray),
+                            )));
+                        } else if !thinking_header_shown {
+                            // Collapsed: Show placeholder once
+                            lines.push(Line::from(Span::styled(
+                                "    | AI assistant thoughts (Hidden)", // Indented
+                                Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                            )));
+                            thinking_header_shown = true;
+                        }
                         continue;
                     }
                     
@@ -194,21 +337,12 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
         }
-    }
-
-    let has_focus = matches!(app.focus, crate::app::Focus::History);
-    let border_color = if has_focus {
-        Color::Yellow  // Bright yellow when focused
-    } else {
-        Color::DarkGray  // Dim gray when unfocused
-    };
-
-    let title = " Conversation ";  // No [Focused] text
-
+    
     // Calculate scroll position - if scroll_offset is very large, 
     // we want to show the bottom content
     // We must account for line wrapping to calculate the true visual height
-    let available_width = area.width.saturating_sub(2) as usize; // Subtract borders
+    // No borders on history anymore, so use full width
+    let available_width = area.width as usize; 
     let mut total_visual_lines = 0;
     
     for line in &lines {
@@ -221,24 +355,17 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    let visible_height = area.height.saturating_sub(2) as usize; // Subtract borders
+    // No borders, so full height visible
+    let visible_height = area.height as usize;
     let max_scroll = total_visual_lines.saturating_sub(visible_height);
     let actual_scroll = app.scroll_offset.min(max_scroll);
     
     // Sync the actual scroll back to the app state
-    // This ensures that when the user tries to scroll up/down, they are starting
-    // from the visual position, not the logical position (which might be usize::MAX)
     if app.scroll_offset != actual_scroll {
         app.scroll_offset = actual_scroll;
     }
 
     let chat_history = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title)
-                .border_style(Style::default().fg(border_color)),
-        )
         .wrap(Wrap { trim: false })
         .scroll((u16::try_from(actual_scroll).unwrap_or(u16::MAX), 0));
 
@@ -247,33 +374,26 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
 
 pub fn render_input_field(frame: &mut Frame, app: &App, area: Rect) {
     let input_text = if app.input_buffer.is_empty() {
-        "Type your message... (Press Enter to send, Tab to switch focus)"
+        "Type your message..."
     } else {
         &app.input_buffer
     };
 
     let input_style = if app.input_buffer.is_empty() {
-        Style::default().fg(Color::DarkGray)
+        // Higher contrast for placeholder
+        Style::default().fg(Color::Gray)
     } else {
-        Style::default().fg(Color::White)
+        // Bright/Bold for input text - Match border color (Cyan)
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
     };
 
-    let has_focus = matches!(app.focus, crate::app::Focus::Input);
-    let border_color = if has_focus {
-        Color::Cyan  // Bright cyan when focused
-    } else {
-        Color::DarkGray  // Dim gray when unfocused
-    };
-
-    let title = " Input ";  // No [Focused] text
-
+    // Keep border for input to make it distinct
     let input = Paragraph::new(input_text)
         .style(input_style)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(title)
-                .border_style(Style::default().fg(border_color)),
+                .border_style(Style::default().fg(Color::Cyan)),
         )
         .wrap(Wrap { trim: false });
 

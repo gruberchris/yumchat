@@ -1,17 +1,13 @@
 use crate::models::{ConversationMetadata, Message};
 
+use std::time::Instant;
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppMode {
     Chat,
     ConversationList,
     Settings,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Focus {
-    Input,
-    History,
 }
 
 #[derive(Debug)]
@@ -25,9 +21,18 @@ pub struct App {
     pub scroll_offset: usize,
     pub context_window_size: usize,
     pub show_help: bool,
-    pub focus: Focus,
     pub is_loading: bool,
+    pub show_info: bool,
+    pub exit_pending: bool,
     pub current_model: String,
+    
+    // TPS tracking
+    pub tokens_per_second: f64,
+    pub generation_start_time: Option<Instant>,
+    pub generation_token_count: usize,
+    
+    // UI toggles
+    pub show_thinking: bool,
 }
 
 impl App {
@@ -41,9 +46,14 @@ impl App {
             scroll_offset: 0,
             context_window_size: 4096,
             show_help: false,
-            focus: Focus::Input,
             is_loading: false,
+            show_info: false,
+            exit_pending: false,
             current_model: "qwen3:4b".to_string(),
+            tokens_per_second: 0.0,
+            generation_start_time: None,
+            generation_token_count: 0,
+            show_thinking: false,
         }
     }
 
@@ -55,11 +65,12 @@ impl App {
         self.show_help = !self.show_help;
     }
 
-    pub const fn toggle_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Input => Focus::History,
-            Focus::History => Focus::Input,
-        };
+    pub const fn toggle_info(&mut self) {
+        self.show_info = !self.show_info;
+    }
+    
+    pub const fn toggle_thinking(&mut self) {
+        self.show_thinking = !self.show_thinking;
     }
 
     pub const fn scroll_up(&mut self, amount: usize) {
@@ -132,7 +143,6 @@ mod tests {
         assert_eq!(app.mode, AppMode::Chat);
         assert!(!app.should_quit);
         assert_eq!(app.context_window_size, 4096);
-        assert_eq!(app.focus, Focus::Input);
     }
 
     #[test]
@@ -176,16 +186,6 @@ mod tests {
         assert!(app.show_help);
         app.toggle_help();
         assert!(!app.show_help);
-    }
-
-    #[test]
-    fn test_toggle_focus() {
-        let mut app = App::new();
-        assert_eq!(app.focus, Focus::Input);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::History);
-        app.toggle_focus();
-        assert_eq!(app.focus, Focus::Input);
     }
 
     #[test]
