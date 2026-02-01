@@ -2,19 +2,7 @@
 
 A terminal UI chat application for AI models powered by Ollama.
 
-## Status
-
-🚀 **Phase 6 Complete** - Real AI chat is now working!
-
-### Completed
-- ✅ Phase 1: Project Setup & Core Infrastructure
-- ✅ Phase 2: Configuration & Storage  
-- ✅ Phase 3: Ollama API Client
-- ✅ Phase 4: Basic UI Layout
-- ✅ Phase 5: Keyboard Navigation & Focus Management
-- ✅ Phase 6: Streaming AI Chat Integration
-
-### Current Features
+## Features
 - **Real AI Chat** - Streaming responses from Ollama models (qwen3:4b)
 - **Beautiful TUI** - Status bar, chat history, and input field
 - **Arrow Key Navigation** - Fine-grained line-by-line scrolling with Up/Down arrows
@@ -24,7 +12,7 @@ A terminal UI chat application for AI models powered by Ollama.
 - **Help System** - Built-in keyboard shortcuts (Ctrl+H)
 - **Cross-platform** - Works on macOS, Linux, Windows
 
-### Try It Now!
+## Try It Now!
 ```bash
 # Make sure Ollama is running with qwen3:4b model
 ollama pull qwen3:4b
@@ -43,11 +31,6 @@ cargo run
 - **Ctrl+I** - Show/hide model info
 - **Ctrl+Q** or **Ctrl+C** - Quit
 - **Esc** - Close help window
-
-### Coming Next
-- 🔨 Phase 7: Conversation Management (save/load conversations)
-- 📋 Phase 8: Settings UI (model selection)
-- 🤖 Phase 9: Auto-generated conversation summaries
 
 ## Development
 
@@ -96,12 +79,8 @@ src/
 ├── config.rs      # Configuration management
 ├── tokens.rs      # Token counting utilities
 ├── ui/            # UI rendering
-│   ├── mod.rs     # Main UI layout
-│   └── widgets.rs # UI components (status, chat, input, help)
 ├── api/           # Ollama API client with streaming
-│   └── mod.rs
 └── storage/       # File system operations
-    └── mod.rs
 ```
 
 ## Configuration
@@ -109,7 +88,7 @@ src/
 YumChat stores its configuration in `~/.config/yumchat/`:
 - `config.toml` - App settings (Ollama URL, model, theme)
 - `models.json` - Model definitions (context window sizes)
-- `chats/` - Conversation files (coming in Phase 7)
+- `chats/` - Conversation files
 
 ## Requirements
 
@@ -124,4 +103,4 @@ YumChat stores its configuration in `~/.config/yumchat/`:
 - **Strict linting** enabled (clippy::all, pedantic, nursery)
 
 ## License
-MIT
+TBD
