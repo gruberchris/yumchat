@@ -19,7 +19,7 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(Span::styled("General:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  Ctrl+H        - Show/hide this help"),
-        Line::from("  Ctrl+I        - Show/hide info stats"),
+        Line::from("  Ctrl+I        - Show/hide model info"),
         Line::from("  Ctrl+Q        - Quit application"),
         Line::from("  Ctrl+C        - Quit application"),
         Line::from(""),
@@ -75,7 +75,20 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
     let context_window = app.context_window_size;
     let usage_percentage = app.context_usage_percentage();
 
-    let info_text = vec![
+    // Center popup
+    let popup_width = 50;
+    let popup_height = 18;
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect {
+        x: area.x + x,
+        y: area.y + y,
+        width: popup_width.min(area.width),
+        height: popup_height.min(area.height),
+    };
+
+    let mut info_text = vec![
         Line::from(Span::styled(
             "Session Information",
             Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
@@ -85,6 +98,52 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
             Span::raw("Model: "),
             Span::styled(&app.current_model, Style::default().fg(Color::Yellow)),
         ]),
+        Line::from(vec![
+            Span::raw("Family: "),
+            Span::styled(
+                app.model_details.as_ref().map(|d| d.family.clone()).unwrap_or_else(|| "Unknown".to_string()), 
+                Style::default().fg(Color::White)
+            ),
+        ]),
+        Line::from(vec![
+            Span::raw("Params: "),
+            Span::styled(
+                app.model_details.as_ref().map(|d| d.parameter_size.clone()).unwrap_or_else(|| "?".to_string()), 
+                Style::default().fg(Color::White)
+            ),
+        ]),
+        Line::from(vec![
+            Span::raw("Quantization: "),
+            Span::styled(
+                app.model_details.as_ref().map(|d| d.quantization_level.clone()).unwrap_or_else(|| "?".to_string()), 
+                Style::default().fg(Color::White)
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("Capabilities:", Style::default().add_modifier(Modifier::BOLD))),
+    ];
+
+    if app.model_capabilities.is_empty() {
+         info_text.push(Line::from(Span::styled("  Unknown", Style::default().fg(Color::DarkGray))));
+    } else {
+        for cap in &app.model_capabilities {
+             let (symbol, color) = match cap.as_str() {
+                 "thinking" => ("🧠", Color::Magenta),
+                 "tools" => ("🛠️", Color::Green),
+                 "vision" => ("👁️", Color::Blue),
+                 "completion" => ("📝", Color::Cyan),
+                 "chat" => ("💬", Color::Yellow),
+                 _ => ("•", Color::White),
+             };
+             info_text.push(Line::from(vec![
+                 Span::raw("  "),
+                 Span::styled(format!("{} {}", symbol, cap), Style::default().fg(color))
+             ]));
+        }
+    }
+    
+    info_text.extend(vec![
+        Line::from(""),
         Line::from(vec![
             Span::raw("Tokens Used: "),
             Span::styled(format!("{}", tokens_used), Style::default().fg(Color::Green)),
@@ -110,29 +169,16 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
             "Press Ctrl+I to close",
             Style::default().fg(Color::DarkGray),
         )),
-    ];
+    ]);
 
     let info_paragraph = Paragraph::new(info_text)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Info ")
+                .title(" Model Info ")
                 .border_style(Style::default().fg(Color::Cyan)),
         )
         .wrap(Wrap { trim: false });
-
-    // Center popup
-    let popup_width = 40;
-    let popup_height = 12;
-    let x = (area.width.saturating_sub(popup_width)) / 2;
-    let y = (area.height.saturating_sub(popup_height)) / 2;
-
-    let popup_area = Rect {
-        x: area.x + x,
-        y: area.y + y,
-        width: popup_width.min(area.width),
-        height: popup_height.min(area.height),
-    };
 
     frame.render_widget(Clear, popup_area);
     frame.render_widget(info_paragraph, popup_area);
@@ -146,7 +192,7 @@ pub fn render_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
         )
     } else {
         (
-            "Ctrl+C: Quit | Ctrl+I: Info | Ctrl+H: Help | Tab: Toggle Thoughts",
+            "Ctrl+C: Quit | Ctrl+I: Model Info | Ctrl+H: Help | Tab: Toggle Thoughts",
             Style::default().fg(Color::DarkGray),
         )
     };

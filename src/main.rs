@@ -38,6 +38,17 @@ async fn main() -> Result<()> {
     let mut app = App::new();
     let client = OllamaClient::with_default_url()?;
 
+    // Fetch model info
+    if let Ok(info) = client.show_model(&app.current_model).await {
+        app.model_capabilities = info.capabilities;
+        app.model_details = info.details;
+        
+        // Auto-enable thinking visibility if model supports thinking
+        if app.model_capabilities.contains(&"thinking".to_string()) {
+            app.show_thinking = false; // Keep default hidden, but user can toggle
+        }
+    }
+
     // Create channel for async events
     let (tx, mut rx) = mpsc::unbounded_channel::<AppEvent>();
 

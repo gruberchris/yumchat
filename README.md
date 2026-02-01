@@ -40,6 +40,7 @@ cargo run
 - **PageUp/PageDown** - Scroll one page
 - **Home/End** - Jump to start/end
 - **Ctrl+H** - Show/hide help window
+- **Ctrl+I** - Show/hide model info
 - **Ctrl+Q** or **Ctrl+C** - Quit
 - **Esc** - Close help window
 

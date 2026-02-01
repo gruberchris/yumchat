@@ -39,6 +39,10 @@ pub struct App {
     // Task management
     #[allow(dead_code)]
     pub current_task: Option<JoinHandle<()>>,
+    
+    // Model Capabilities
+    pub model_details: Option<crate::api::ModelDetails>,
+    pub model_capabilities: Vec<String>,
 }
 
 impl App {
@@ -62,6 +66,8 @@ impl App {
             show_thinking: false,
             is_thinking: false,
             current_task: None,
+            model_details: None,
+            model_capabilities: Vec::new(),
         }
     }
 

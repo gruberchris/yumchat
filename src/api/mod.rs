@@ -69,6 +69,28 @@ pub struct ShowResponse {
     pub parameters: String,
     #[serde(default)]
     pub template: String,
+    #[serde(default)]
+    pub details: Option<ModelDetails>,
+    #[serde(default)]
+    pub model_info: std::collections::HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ModelDetails {
+    #[serde(default)]
+    pub parent_model: String,
+    #[serde(default)]
+    pub format: String,
+    #[serde(default)]
+    pub family: String,
+    #[serde(default)]
+    pub families: Vec<String>,
+    #[serde(default)]
+    pub parameter_size: String,
+    #[serde(default)]
+    pub quantization_level: String,
 }
 
 #[allow(dead_code)]
