@@ -24,13 +24,15 @@ cargo run
 **Controls:**
 - **Type & Enter** - Send message to AI
 - **Tab** - Toggle hidden thinking blocks
+- **Ctrl+N** - Start new conversation (Reset)
+- **Ctrl+M** - Switch Model
+- **Ctrl+I** - Show/hide model info
+- **Ctrl+H** - Show/hide help window
+- **Ctrl+Q** or **Ctrl+C** - Quit
 - **Up/Down Arrow** - Scroll chat history
 - **PageUp/PageDown** - Scroll one page
 - **Home/End** - Jump to start/end
-- **Ctrl+H** - Show/hide help window
-- **Ctrl+I** - Show/hide model info
-- **Ctrl+Q** or **Ctrl+C** - Quit
-- **Esc** - Close help window
+- **Esc** - Close help/info windows or cancel exit
 
 ## Development
 

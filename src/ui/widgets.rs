@@ -65,6 +65,7 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
         )),
         Line::from(""),
         Line::from(Span::styled("General:", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from("  Ctrl+N        - New conversation"),
         Line::from("  Ctrl+H        - Show/hide this help"),
         Line::from("  Ctrl+I        - Show/hide model info"),
         Line::from("  Ctrl+M        - Switch Model"),
@@ -82,7 +83,6 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
         Line::from("  Home/End      - Jump to start/end"),
         Line::from(""),
         Line::from(Span::styled("Coming Soon:", Style::default().add_modifier(Modifier::BOLD))),
-        Line::from("  Ctrl+N        - New conversation"),
         Line::from("  Ctrl+L        - List conversations"),
         Line::from("  Ctrl+S        - Settings"),
         Line::from(""),
@@ -203,7 +203,7 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(vec![
             Span::raw("Context Window: "),
-            Span::styled(format!("{context_window}"), Style::default().fg(Color::Blue)),
+            Span::styled(format!("{context_window} tokens"), Style::default().fg(Color::Blue)),
         ]),
         Line::from(vec![
             Span::raw("Usage: "),
@@ -236,12 +236,13 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
 pub fn render_bottom_bar(frame: &mut Frame, app: &App, area: Rect) {
     let (text, style) = if app.exit_pending {
         (
-            "Press Ctrl+C again to exit, Esc to cancel",
+            "Press Ctrl+C again to exit, Esc to cancel".to_string(),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         )
     } else {
+        let thought_action = if app.show_thinking { "Hide" } else { "Reveal" };
         (
-            "Ctrl+C: Quit | Ctrl+I: Model Info | Ctrl+H: Help | Tab: Toggle Thoughts",
+            format!("Ctrl+N: New | Ctrl+C: Quit | Ctrl+I: Info | Tab: {thought_action} Thoughts | Ctrl+H: Help"),
             Style::default().fg(Color::DarkGray),
         )
     };

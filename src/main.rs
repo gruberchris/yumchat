@@ -301,6 +301,9 @@ fn handle_keyboard_input(
                 });
             }
         }
+        KeyCode::Char('n') if modifiers.contains(event::KeyModifiers::CONTROL) => {
+            app.reset_conversation();
+        }
         KeyCode::Tab => {
             // Toggle visibility of <thinking> blocks
             app.toggle_thinking();

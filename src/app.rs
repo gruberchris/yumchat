@@ -112,6 +112,15 @@ impl App {
         }
     }
 
+    pub fn reset_conversation(&mut self) {
+        self.abort_generation();
+        self.messages.clear();
+        self.input_buffer.clear();
+        self.scroll_offset = 0;
+        self.tokens_per_second = 0.0;
+        self.generation_token_count = 0;
+    }
+
     pub const fn scroll_up(&mut self, amount: usize) {
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
     }
