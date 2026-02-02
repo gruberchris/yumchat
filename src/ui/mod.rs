@@ -1,7 +1,7 @@
 pub mod markdown;
 pub mod widgets;
 
-use crate::app::App;
+use crate::app::{App, AppMode};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     Frame,
@@ -21,7 +21,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         // Note: This is a simple approximation. Ratatui's Wrap might differ slightly with words,
         // but this is usually close enough for auto-resizing.
         let chars_count = app.input_buffer.chars().count();
-        (chars_count + available_width - 1) / available_width
+        chars_count.div_ceil(available_width)
     };
     
     // Clamp lines: Min 1, Max 50% of screen height (approx)
@@ -29,6 +29,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let actual_lines = input_lines.max(1).min(max_lines);
     
     // Total widget height = text lines + 2 border lines
+    #[allow(clippy::cast_possible_truncation)]
     let input_height = (actual_lines + 2) as u16;
 
     let chunks = Layout::default()
@@ -56,6 +57,11 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Render info window on top if active
     if app.show_info {
         widgets::render_info_window(frame, app, frame.area());
+    }
+
+    // Render model selector if active
+    if app.mode == AppMode::ModelSelector {
+        widgets::render_model_selector(frame, app, frame.area());
     }
 }
 

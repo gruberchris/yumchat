@@ -61,7 +61,7 @@ pub struct TagsResponse {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ShowResponse {
     #[serde(default)]
     pub modelfile: String,
@@ -95,9 +95,9 @@ pub struct ModelDetails {
 
 #[allow(dead_code)]
 impl OllamaClient {
-    pub fn new(base_url: String) -> Result<Self> {
+    pub fn new(base_url: String, request_timeout: u64) -> Result<Self> {
         let client = Client::builder()
-            .timeout(Duration::from_secs(300))
+            .timeout(Duration::from_secs(request_timeout))
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -105,7 +105,7 @@ impl OllamaClient {
     }
 
     pub fn with_default_url() -> Result<Self> {
-        Self::new("http://localhost:11434".to_string())
+        Self::new("http://localhost:11434".to_string(), 600)
     }
 
     #[allow(dead_code)]
@@ -201,7 +201,7 @@ impl OllamaClient {
                             // Loop back to check for newline
                         }
                         Some(Err(e)) => {
-                            return Some((Err(anyhow::anyhow!("Stream error: {}", e)), (byte_stream, buffer)));
+                            return Some((Err(anyhow::anyhow!("Stream error: {e}")), (byte_stream, buffer)));
                         }
                         None => {
                             // End of stream
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = OllamaClient::new("http://localhost:11434".to_string());
+        let client = OllamaClient::new("http://localhost:11434".to_string(), 300);
         assert!(client.is_ok());
     }
 

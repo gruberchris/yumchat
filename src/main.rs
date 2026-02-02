@@ -36,7 +36,14 @@ async fn main() -> Result<()> {
 
     // Create app state and API client
     let mut app = App::new();
-    let client = OllamaClient::with_default_url()?;
+    
+    // Load config
+    let config = config::load_config().unwrap_or_default();
+    
+    // Update app with config
+    app.current_model = config.default_model.clone();
+    
+    let client = OllamaClient::new(config.ollama_url.clone(), config.request_timeout)?;
 
     // Fetch model info
     if let Ok(info) = client.show_model(&app.current_model).await {
@@ -113,6 +120,7 @@ fn handle_app_event(app: &mut App, event: AppEvent) {
                     
                     app.generation_token_count += delta_tokens;
                     
+                    #[allow(clippy::cast_precision_loss)]
                     if let Some(start) = app.generation_start_time {
                         let elapsed = start.elapsed().as_secs_f64();
                         if elapsed > 0.0 {
@@ -144,6 +152,25 @@ fn handle_app_event(app: &mut App, event: AppEvent) {
             // Auto-scroll to show error
             app.scroll_to_bottom();
         }
+        AppEvent::ModelsLoaded(models) => {
+            app.is_loading = false;
+            app.available_models = models;
+            app.model_list_state.select(Some(0));
+            // Pre-select current model if available
+            if let Some(pos) = app.available_models.iter().position(|m| m == &app.current_model) {
+                app.model_list_state.select(Some(pos));
+            }
+            app.mode = app::AppMode::ModelSelector;
+        }
+        AppEvent::ModelInfoLoaded(info) => {
+            app.model_capabilities = info.capabilities;
+            app.model_details = info.details;
+            
+            // Auto-enable thinking visibility if model supports thinking
+            if app.model_capabilities.contains(&"thinking".to_string()) {
+                app.show_thinking = false; 
+            }
+        }
     }
 }
 
@@ -164,6 +191,7 @@ const fn handle_help_keys(app: &mut App, key: KeyCode, modifiers: event::KeyModi
     true
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_keyboard_input(
     app: &mut App,
     key: KeyCode,
@@ -171,6 +199,7 @@ fn handle_keyboard_input(
     client: &OllamaClient,
     event_tx: &mpsc::UnboundedSender<AppEvent>,
 ) -> Option<JoinHandle<()>> {
+    #[allow(clippy::too_many_lines)]
     match key {
         KeyCode::Char('c') if modifiers.contains(event::KeyModifiers::CONTROL) => {
             if app.exit_pending {
@@ -203,6 +232,46 @@ fn handle_keyboard_input(
         return None; 
     }
 
+    // Handle ModelSelector specific input
+    if app.mode == app::AppMode::ModelSelector {
+        match key {
+            KeyCode::Esc => {
+                app.mode = app::AppMode::Chat;
+                return None;
+            }
+            KeyCode::Up => {
+                app.select_previous_model();
+                return None;
+            }
+            KeyCode::Down => {
+                app.select_next_model();
+                return None;
+            }
+            KeyCode::Enter => {
+                if let Some(i) = app.model_list_state.selected() {
+                    if let Some(model) = app.available_models.get(i) {
+                        app.current_model = model.clone();
+                        app.model_details = None;
+                        app.model_capabilities.clear();
+                        
+                        // Spawn task to fetch model info
+                        let client_clone = client.clone();
+                        let model_name = model.clone();
+                        let tx = event_tx.clone();
+                        tokio::spawn(async move {
+                            if let Ok(info) = client_clone.show_model(&model_name).await {
+                                let _ = tx.send(AppEvent::ModelInfoLoaded(Box::new(info)));
+                            }
+                        });
+                    }
+                }
+                app.mode = app::AppMode::Chat;
+                return None;
+            }
+            _ => return None,
+        }
+    }
+
     match key {
         KeyCode::Char('q') if modifiers.contains(event::KeyModifiers::CONTROL) => {
              // Keep Ctrl+Q as instant quit 
@@ -213,6 +282,24 @@ fn handle_keyboard_input(
         }
         KeyCode::Char('i') if modifiers.contains(event::KeyModifiers::CONTROL) => {
             app.toggle_info();
+        }
+        KeyCode::Char('m') if modifiers.contains(event::KeyModifiers::CONTROL) => {
+            if !app.is_loading {
+                app.is_loading = true;
+                let client_clone = client.clone();
+                let tx = event_tx.clone();
+                tokio::spawn(async move {
+                    match client_clone.list_models().await {
+                        Ok(models) => {
+                            let names = models.into_iter().map(|m| m.name).collect();
+                            let _ = tx.send(AppEvent::ModelsLoaded(names));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(AppEvent::AiError(e.to_string()));
+                        }
+                    }
+                });
+            }
         }
         KeyCode::Tab => {
             // Toggle visibility of <thinking> blocks
@@ -373,12 +460,10 @@ fn run_app<B: Backend>(
                     }
                     
                     // Handle info window
-                    if app.show_info {
-                        if key.code == KeyCode::Esc || 
-                           (key.code == KeyCode::Char('i') && key.modifiers.contains(event::KeyModifiers::CONTROL)) {
-                            app.show_info = false;
-                            continue;
-                        }
+                    if app.show_info && (key.code == KeyCode::Esc || 
+                           (key.code == KeyCode::Char('i') && key.modifiers.contains(event::KeyModifiers::CONTROL))) {
+                        app.show_info = false;
+                        continue;
                     }
 
                     match key.code {
@@ -411,7 +496,9 @@ fn run_app<B: Backend>(
                     }
 
                     // Normal key handling
-                    handle_keyboard_input(app, key.code, key.modifiers, client, event_tx);
+                    if let Some(handle) = handle_keyboard_input(app, key.code, key.modifiers, client, event_tx) {
+                        app.current_task = Some(handle);
+                    }
                 }
             }
         }

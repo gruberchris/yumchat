@@ -9,4 +9,8 @@ pub enum AppEvent {
     AiResponseDone,
     /// An error occurred during AI generation
     AiError(String),
+    /// List of models loaded from API
+    ModelsLoaded(Vec<String>),
+    /// Model info loaded
+    ModelInfoLoaded(Box<crate::api::ShowResponse>),
 }

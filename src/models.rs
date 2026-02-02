@@ -87,14 +87,21 @@ impl Message {
 pub struct AppConfig {
     pub ollama_url: String,
     pub default_model: String,
+    #[serde(default = "default_timeout")]
+    pub request_timeout: u64,
     pub theme: ThemeConfig,
+}
+
+const fn default_timeout() -> u64 {
+    600
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             ollama_url: "http://localhost:11434".to_string(),
-            default_model: "llama2".to_string(),
+            default_model: "qwen3:4b".to_string(),
+            request_timeout: default_timeout(),
             theme: ThemeConfig::default(),
         }
     }
@@ -172,6 +179,6 @@ mod tests {
     fn test_app_config_default() {
         let config = AppConfig::default();
         assert_eq!(config.ollama_url, "http://localhost:11434");
-        assert_eq!(config.default_model, "llama2");
+        assert_eq!(config.default_model, "qwen3:4b");
     }
 }

@@ -2,6 +2,7 @@ use crate::models::{ConversationMetadata, Message};
 
 use std::time::Instant;
 use tokio::task::JoinHandle;
+use ratatui::widgets::ListState;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,9 +10,11 @@ pub enum AppMode {
     Chat,
     ConversationList,
     Settings,
+    ModelSelector,
 }
 
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     pub mode: AppMode,
     pub should_quit: bool,
@@ -43,6 +46,10 @@ pub struct App {
     // Model Capabilities
     pub model_details: Option<crate::api::ModelDetails>,
     pub model_capabilities: Vec<String>,
+    
+    // Model Selector
+    pub available_models: Vec<String>,
+    pub model_list_state: ListState,
 }
 
 impl App {
@@ -68,6 +75,8 @@ impl App {
             current_task: None,
             model_details: None,
             model_capabilities: Vec::new(),
+            available_models: Vec::new(),
+            model_list_state: ListState::default(),
         }
     }
 
@@ -107,7 +116,7 @@ impl App {
         self.scroll_offset = self.scroll_offset.saturating_sub(amount);
     }
 
-    pub fn scroll_down(&mut self, amount: usize) {
+    pub const fn scroll_down(&mut self, amount: usize) {
         self.scroll_offset = self.scroll_offset.saturating_add(amount);
     }
 
@@ -153,6 +162,40 @@ impl App {
             self.total_tokens_used(),
             self.context_window_size,
         )
+    }
+
+    pub fn select_next_model(&mut self) {
+        if self.available_models.is_empty() {
+            return;
+        }
+        let i = match self.model_list_state.selected() {
+            Some(i) => {
+                if i >= self.available_models.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.model_list_state.select(Some(i));
+    }
+
+    pub fn select_previous_model(&mut self) {
+        if self.available_models.is_empty() {
+            return;
+        }
+        let i = match self.model_list_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.available_models.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.model_list_state.select(Some(i));
     }
 }
 

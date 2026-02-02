@@ -2,11 +2,58 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap, Clear},
+    widgets::{Block, Borders, Paragraph, Wrap, Clear, List, ListItem},
     Frame,
 };
 
-use crate::app::App;
+use crate::app::{App, AppMode};
+
+pub fn render_model_selector(frame: &mut Frame, app: &mut App, area: Rect) {
+    if app.mode != AppMode::ModelSelector {
+        return;
+    }
+
+    let popup_width = 60;
+    let popup_height = 20;
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect {
+        x: area.x + x,
+        y: area.y + y,
+        width: popup_width.min(area.width),
+        height: popup_height.min(area.height),
+    };
+    
+    // Clear area behind popup
+    frame.render_widget(Clear, popup_area);
+    
+    let items: Vec<ListItem> = app.available_models
+        .iter()
+        .map(|m| {
+            let content = if m == &app.current_model {
+                Line::from(vec![
+                    Span::styled(format!("* {m}"), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+                ])
+            } else {
+                Line::from(vec![
+                   Span::styled(format!("  {m}"), Style::default().fg(Color::White))
+                ])
+            };
+            ListItem::new(content)
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(" Select Model (Enter to confirm, Esc to cancel) ")
+            .border_style(Style::default().fg(Color::Yellow))
+        )
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+    frame.render_stateful_widget(list, popup_area, &mut app.model_list_state);
+}
 
 pub fn render_help_window(frame: &mut Frame, area: Rect) {
     let help_text = vec![
@@ -20,6 +67,7 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
         Line::from(Span::styled("General:", Style::default().add_modifier(Modifier::BOLD))),
         Line::from("  Ctrl+H        - Show/hide this help"),
         Line::from("  Ctrl+I        - Show/hide model info"),
+        Line::from("  Ctrl+M        - Switch Model"),
         Line::from("  Ctrl+Q        - Quit application"),
         Line::from("  Ctrl+C        - Quit application"),
         Line::from(""),
@@ -70,6 +118,7 @@ pub fn render_help_window(frame: &mut Frame, area: Rect) {
     frame.render_widget(help_paragraph, popup_area);
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
     let tokens_used = app.total_tokens_used();
     let context_window = app.context_window_size;
@@ -101,21 +150,21 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::raw("Family: "),
             Span::styled(
-                app.model_details.as_ref().map(|d| d.family.clone()).unwrap_or_else(|| "Unknown".to_string()), 
+                app.model_details.as_ref().map_or_else(|| "Unknown".to_string(), |d| d.family.clone()), 
                 Style::default().fg(Color::White)
             ),
         ]),
         Line::from(vec![
             Span::raw("Params: "),
             Span::styled(
-                app.model_details.as_ref().map(|d| d.parameter_size.clone()).unwrap_or_else(|| "?".to_string()), 
+                app.model_details.as_ref().map_or_else(|| "?".to_string(), |d| d.parameter_size.clone()), 
                 Style::default().fg(Color::White)
             ),
         ]),
         Line::from(vec![
             Span::raw("Quantization: "),
             Span::styled(
-                app.model_details.as_ref().map(|d| d.quantization_level.clone()).unwrap_or_else(|| "?".to_string()), 
+                app.model_details.as_ref().map_or_else(|| "?".to_string(), |d| d.quantization_level.clone()), 
                 Style::default().fg(Color::White)
             ),
         ]),
@@ -137,7 +186,7 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
              };
              info_text.push(Line::from(vec![
                  Span::raw("  "),
-                 Span::styled(format!("{} {}", symbol, cap), Style::default().fg(color))
+                 Span::styled(format!("{symbol} {cap}"), Style::default().fg(color))
              ]));
         }
     }
@@ -146,7 +195,7 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
         Line::from(vec![
             Span::raw("Tokens Used: "),
-            Span::styled(format!("{}", tokens_used), Style::default().fg(Color::Green)),
+            Span::styled(format!("{tokens_used}"), Style::default().fg(Color::Green)),
         ]),
         Line::from(vec![
             Span::raw("Speed: "),
@@ -154,11 +203,11 @@ pub fn render_info_window(frame: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(vec![
             Span::raw("Context Window: "),
-            Span::styled(format!("{}", context_window), Style::default().fg(Color::Blue)),
+            Span::styled(format!("{context_window}"), Style::default().fg(Color::Blue)),
         ]),
         Line::from(vec![
             Span::raw("Usage: "),
-            Span::styled(format!("{:.1}%", usage_percentage), Style::default().fg(
+            Span::styled(format!("{usage_percentage:.1}%"), Style::default().fg(
                 if usage_percentage > 80.0 { Color::Red }
                 else if usage_percentage > 50.0 { Color::Yellow }
                 else { Color::Green }
@@ -237,6 +286,7 @@ pub fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(status, area);
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
     let mut lines = Vec::new();
 
@@ -272,20 +322,20 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
     } 
     
     for message in &app.messages {
-        let (role, color) = match message.role {
-                crate::models::MessageRole::User => ("User", Color::Cyan),
-                crate::models::MessageRole::Assistant => ("Assistant", Color::Green),
-            };
+        lines.push(Line::from(""));
 
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                format!("## {role}"),
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(""));
-
-            // Render content with markdown styling
-            if message.content.is_empty() {
+        match message.role {
+            crate::models::MessageRole::User => {
+                for line in message.content.lines() {
+                    lines.push(Line::from(vec![
+                        Span::styled("> ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    ]));
+                }
+            }
+            crate::models::MessageRole::Assistant => {
+                // Render content with markdown styling
+                if message.content.is_empty() {
                 // Show a placeholder for empty AI responses (while streaming)
                 lines.push(Line::from(Span::styled("...", Style::default().fg(Color::DarkGray))));
             } else {
@@ -317,17 +367,13 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                         if !clean_trimmed.is_empty() {
                             if app.show_thinking {
                                 lines.push(Line::from(Span::styled(
-                                    format!("        {}", clean_trimmed), 
+                                    format!("        {clean_trimmed}"), 
                                     Style::default().fg(Color::DarkGray),
                                 )));
                             } else if !thinking_header_shown {
                                 if app.is_loading && app.is_thinking {
                                     // Animation based on time
-                                    let tick = if let Some(start) = app.generation_start_time {
-                                        (start.elapsed().as_millis() / 100) as usize
-                                    } else {
-                                        0
-                                    };
+                                    let tick = app.generation_start_time.map_or(0, |start| (start.elapsed().as_millis() / 100) as usize);
                                     
                                     let frames = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
                                     let frame = frames[tick % frames.len()];
@@ -339,9 +385,9 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                                     
                                     lines.push(Line::from(vec![
                                         Span::styled("    | AI assistant thoughts (Hidden)   ", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
-                                        Span::styled(format!("{}  ", frame), Style::default().fg(color)),
+                                        Span::styled(format!("{frame}  "), Style::default().fg(color)),
                                         Span::styled("Thinking", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-                                        Span::styled(format!("  {}", frame), Style::default().fg(color)),
+                                        Span::styled(format!("  {frame}"), Style::default().fg(color)),
                                     ]));
                                 } else {
                                     lines.push(Line::from(Span::styled(
@@ -413,22 +459,20 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
                 // Add thinking animation if currently thinking at the end of the message (visible mode)
                 if app.is_loading && app.is_thinking && in_thinking && app.show_thinking {
                     // Animation based on time
-                    let tick = if let Some(start) = app.generation_start_time {
-                        (start.elapsed().as_millis() / 100) as usize
-                    } else {
-                        0
-                    };
+                    let tick = app.generation_start_time.map_or(0, |start| (start.elapsed().as_millis() / 100) as usize);
                     
                     let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
                     let frame = frames[tick % frames.len()];
                     
                     lines.push(Line::from(Span::styled(
-                        format!("        {} Thinking...", frame), 
+                        format!("        {frame} Thinking..."), 
                         Style::default().fg(Color::DarkGray),
                     )));
                 }
             }
         }
+    }
+    }
     
     // Calculate scroll position - if scroll_offset is very large, 
     // we want to show the bottom content
@@ -443,7 +487,7 @@ pub fn render_chat_history(frame: &mut Frame, app: &mut App, area: Rect) {
             total_visual_lines += 1;
         } else {
             // Ceiling division: (width + available - 1) / available
-            total_visual_lines += (line_width + available_width - 1) / available_width;
+            total_visual_lines += line_width.div_ceil(available_width);
         }
     }
 
